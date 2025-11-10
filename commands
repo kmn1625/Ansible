@@ -1,0 +1,14 @@
+Running Playbooks
+# Run playbook
+ansible-playbook webserver.yml
+
+# Run with syntax check
+ansible-playbook webserver.yml --syntax-check
+
+# Run in dry-run mode (check mode)
+ansible-playbook webserver.yml --check
+
+# Run with verbose output
+ansible-playbook webserver.yml -v
+ansible-playbook webserver.yml -vv
+ansible-playbook webserver.yml -vvv
