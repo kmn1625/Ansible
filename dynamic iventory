@@ -1,0 +1,574 @@
+Ansible Dynamic Inventory - Complete Guide
+What is Dynamic Inventory?
+Dynamic Inventory in Ansible automatically discovers and updates the list of managed hosts from external sources like cloud providers (AWS, Azure, GCP), databases, or custom scripts. Unlike static inventory files, dynamic inventories adapt to infrastructure changes in real-time.
+Why Use Dynamic Inventory?
+🔄 Auto-discovery: Automatically detect new EC2 instances, containers, or VMs
+☁️ Cloud-native: Perfect for elastic/auto-scaling environments
+🎯 Tag-based: Group hosts by cloud tags automatically
+⚡ Real-time: Always up-to-date without manual updates
+🔧 CI/CD friendly: Integrate with pipelines seamlessly
+1. Understanding Dynamic Inventory
+1.1 Static vs Dynamic Inventory
+# Static Inventory (hosts file)
+[webservers]
+web1.example.com
+web2.example.com
+192.168.1.10
+
+# Problem: Manual updates needed when infrastructure changes
+
+# Dynamic Inventory
+# - Queries AWS/Azure/GCP APIs
+# - Automatically discovers instances
+# - Groups by tags, regions, instance types
+# - Always current with infrastructure
+1.2 How Dynamic Inventory Works
+Workflow:
+1. Ansible calls inventory script/plugin
+2. Script queries cloud provider API
+3. Returns JSON with hosts and groups
+4. Ansible uses discovered hosts for playbook execution
+1.3 Dynamic Inventory Output Format
+# Required JSON format for dynamic inventory
+{
+  "_meta": {
+    "hostvars": {
+      "host1.example.com": {
+        "ansible_host": "10.0.1.10",
+        "ansible_user": "ubuntu",
+        "instance_type": "t2.micro"
+      }
+    }
+  },
+  "webservers": {
+    "hosts": ["host1.example.com"]
+  }
+}
+2. AWS EC2 Dynamic Inventory
+2.1 Setup AWS Dynamic Inventory
+Prerequisites:
+AWS CLI configured with credentials
+boto3 Python library installed
+IAM permissions for EC2 describe operations
+# Install required packages
+pip3 install boto3 botocore
+
+# Verify AWS credentials
+aws configure list
+
+# Test AWS access
+aws ec2 describe-instances --region us-east-1
+2.2 AWS EC2 Plugin Configuration
+# Create inventory directory
+mkdir -p inventory
+
+# Create aws_ec2.yml plugin configuration
+# inventory/aws_ec2.yml
+---
+plugin: amazon.aws.aws_ec2
+
+# AWS regions to query
+regions:
+  - us-east-1
+  - us-west-2
+
+# Filter instances (only running instances)
+filters:
+  instance-state-name: running
+
+# Group instances by tags
+keyed_groups:
+  # Group by tag:Name
+  - key: tags.Name
+    prefix: tag_name
+    separator: "_"
+  
+  # Group by tag:Environment
+  - key: tags.Environment
+    prefix: env
+    separator: "_"
+  
+  # Group by instance type
+  - key: instance_type
+    prefix: instance_type
+    separator: "_"
+
+# Compose variables for each host
+compose:
+  ansible_host: public_ip_address
+  ansible_user: "'ubuntu'"
+  private_ip: private_ip_address
+
+# Cache settings
+cache: yes
+cache_plugin: jsonfile
+cache_timeout: 300
+2.3 Test AWS Dynamic Inventory
+# List all discovered hosts
+ansible-inventory -i inventory/aws_ec2.yml --list
+
+# Show inventory in graph format
+ansible-inventory -i inventory/aws_ec2.yml --graph
+
+# Test ping to all EC2 instances
+ansible all -i inventory/aws_ec2.yml -m ping
+3. CI/CD Pipeline Integration
+3.1 Tag-Based Auto-Discovery
+# Terraform creates EC2 with tags
+resource "aws_instance" "web" {
+  ami           = "ami-0c55b159cbfafe1f0"
+  instance_type = "t2.micro"
+  
+  tags = {
+    Name        = "web-server"
+    Environment = "production"
+    Managed     = "Ansible"
+    Role        = "webserver"
+  }
+  
+  count = 3
+}
+
+# AWS EC2 inventory automatically discovers these
+# inventory/aws_ec2.yml
+---
+plugin: amazon.aws.aws_ec2
+regions:
+  - us-east-1
+
+filters:
+  instance-state-name: running
+  "tag:Managed": "Ansible"
+
+keyed_groups:
+  - key: tags.Role
+    prefix: role
+3.2 Jenkins Pipeline Example
+// Jenkinsfile
+pipeline {
+  agent any
+  
+  stages {
+    stage('Create Infrastructure') {
+      steps {
+        sh 'terraform apply -auto-approve'
+      }
+    }
+    
+    stage('Wait for Instances') {
+      steps {
+        sh 'sleep 60'
+      }
+    }
+    
+    stage('Configure with Ansible') {
+      steps {
+        sh '''
+          ansible-playbook -i inventory/aws_ec2.yml \
+            playbooks/configure.yml \
+            --limit role_webserver
+        '''
+      }
+    }
+  }
+}
+3.3 GitLab CI Example
+# .gitlab-ci.yml
+stages:
+  - provision
+  - configure
+
+provision:
+  stage: provision
+  script:
+    - terraform apply -auto-approve
+
+configure:
+  stage: configure
+  image: python:3.9
+  before_script:
+    - pip install ansible boto3
+  script:
+    - sleep 60
+    - rm -rf /tmp/aws_ec2_cache
+    - ansible-inventory -i inventory/aws_ec2.yml --list
+    - ansible-playbook -i inventory/aws_ec2.yml playbooks/setup.yml
+3.4 GitHub Actions Example
+name: Deploy and Configure
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: hashicorp/setup-terraform@v2
+      - run: terraform init
+      - run: terraform apply -auto-approve
+
+  configure:
+    needs: provision
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - run: pip install ansible boto3
+      - run: sleep 60
+      - run: rm -rf /tmp/aws_ec2_cache
+      - run: ansible-playbook -i inventory/aws_ec2.yml playbooks/setup.yml
+4. Custom Dynamic Inventory Scripts
+4.1 Simple Custom Script
+#!/usr/bin/env python3
+# inventory.py
+
+import json
+import sys
+
+def get_inventory():
+    inventory = {
+        "_meta": {
+            "hostvars": {
+                "web1": {
+                    "ansible_host": "10.0.1.10",
+                    "ansible_user": "ubuntu"
+                }
+            }
+        },
+        "webservers": {
+            "hosts": ["web1"]
+        }
+    }
+    return inventory
+
+if __name__ == '__main__':
+    if len(sys.argv) == 2 and sys.argv[1] == '--list':
+        print(json.dumps(get_inventory(), indent=2))
+    elif len(sys.argv) == 3 and sys.argv[1] == '--host':
+        print(json.dumps({}))
+
+# Make executable: chmod +x inventory.py
+4.2 AWS EC2 Custom Script
+#!/usr/bin/env python3
+# aws_inventory.py
+
+import json
+import sys
+import boto3
+
+class EC2Inventory:
+    def __init__(self):
+        self.inventory = {"_meta": {"hostvars": {}}}
+    
+    def get_inventory(self):
+        ec2 = boto3.client('ec2', region_name='us-east-1')
+        
+        response = ec2.describe_instances(
+            Filters=[
+                {'Name': 'instance-state-name', 'Values': ['running']},
+                {'Name': 'tag:Managed', 'Values': ['Ansible']}
+            ]
+        )
+        
+        for reservation in response['Reservations']:
+            for instance in reservation['Instances']:
+                self.process_instance(instance)
+        
+        return self.inventory
+    
+    def process_instance(self, instance):
+        instance_id = instance['InstanceId']
+        tags = {t['Key']: t['Value'] for t in instance.get('Tags', [])}
+        name = tags.get('Name', instance_id)
+        
+        self.inventory['_meta']['hostvars'][name] = {
+            'ansible_host': instance.get('PublicIpAddress', ''),
+            'ansible_user': 'ubuntu',
+            'instance_id': instance_id
+        }
+        
+        role = tags.get('Role', 'undefined')
+        group = f'role_{role}'
+        
+        if group not in self.inventory:
+            self.inventory[group] = {'hosts': []}
+        self.inventory[group]['hosts'].append(name)
+
+if __name__ == '__main__':
+    if len(sys.argv) == 2 and sys.argv[1] == '--list':
+        inv = EC2Inventory()
+        print(json.dumps(inv.get_inventory(), indent=2))
+    else:
+        print(json.dumps({}))
+5. Complete Deployment Example
+5.1 Project Structure
+project/
+├── terraform/
+│   └── main.tf
+├── inventory/
+│   └── aws_ec2.yml
+├── playbooks/
+│   ├── configure.yml
+│   └── deploy.yml
+└── deploy.sh
+5.2 Terraform Configuration
+# terraform/main.tf
+provider "aws" {
+  region = "us-east-1"
+}
+
+resource "aws_instance" "web" {
+  count         = 3
+  ami           = "ami-0c55b159cbfafe1f0"
+  instance_type = "t2.micro"
+  key_name      = "ansible-key"
+  
+  tags = {
+    Name        = "web-${count.index + 1}"
+    Environment = "production"
+    Role        = "webserver"
+    Managed     = "Ansible"
+  }
+}
+
+output "instance_ids" {
+  value = aws_instance.web[*].id
+}
+5.3 Ansible Playbook
+# playbooks/configure.yml
+---
+- name: Configure Web Servers
+  hosts: role_webserver
+  become: yes
+  
+  tasks:
+    - name: Wait for connection
+      wait_for_connection:
+        timeout: 300
+    
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+    
+    - name: Install nginx
+      apt:
+        name: nginx
+        state: present
+    
+    - name: Start nginx
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+    
+    - name: Deploy website
+      copy:
+        content: |
+          <h1>Deployed via Pipeline</h1>
+          <p>Host: {{ inventory_hostname }}</p>
+        dest: /var/www/html/index.html
+5.4 Deployment Script
+#!/bin/bash
+# deploy.sh
+
+set -e
+
+echo "=== Creating Infrastructure ==="
+cd terraform
+terraform init
+terraform apply -auto-approve
+cd ..
+
+echo "=== Waiting for instances to be ready ==="
+sleep 60
+
+echo "=== Clearing inventory cache ==="
+rm -rf /tmp/aws_ec2_cache
+
+echo "=== Verifying inventory ==="
+ansible-inventory -i inventory/aws_ec2.yml --graph
+
+echo "=== Waiting for SSH ==="
+ansible all -i inventory/aws_ec2.yml \
+  -m wait_for_connection \
+  -a "timeout=300"
+
+echo "=== Configuring servers ==="
+ansible-playbook -i inventory/aws_ec2.yml \
+  playbooks/configure.yml
+
+echo "=== Testing deployment ==="
+ansible role_webserver -i inventory/aws_ec2.yml \
+  -m shell -a "curl -s localhost"
+
+echo "=== Deployment complete ==="
+
+# Make executable: chmod +x deploy.sh
+# Run: ./deploy.sh
+6. Advanced Techniques
+6.1 Multiple Cloud Providers
+# inventory/all.yml
+---
+plugin: constructed
+
+# Use both AWS and Azure inventories
+sources:
+  - aws_ec2.yml
+  - azure_rm.yml
+
+# Additional grouping
+groups:
+  production: "'prod' in (tags.Environment | default(''))"
+  development: "'dev' in (tags.Environment | default(''))"
+
+compose:
+  environment: tags.Environment | default('unknown')
+6.2 Conditional Groups
+# inventory/aws_ec2.yml
+---
+plugin: amazon.aws.aws_ec2
+
+regions:
+  - us-east-1
+
+filters:
+  instance-state-name: running
+
+keyed_groups:
+  - key: tags.Environment
+    prefix: env
+  - key: tags.Role
+    prefix: role
+
+# Conditional groups
+groups:
+  large_instances: instance_type.startswith('m5')
+  small_instances: instance_type.startswith('t2')
+  us_servers: placement.region == 'us-east-1'
+6.3 Instance Metadata
+# Use instance metadata for grouping
+compose:
+  ansible_host: public_ip_address
+  ansible_user: "'ubuntu'"
+  
+  # Add all instance metadata
+  ec2_metadata:
+    id: instance_id
+    type: instance_type
+    az: placement.availability_zone
+    vpc: vpc_id
+    subnet: subnet_id
+    
+  # Calculated values
+  is_production: tags.Environment == 'production'
+  needs_backup: tags.Backup | default('no') == 'yes'
+7. Troubleshooting
+7.1 Common Issues
+# Issue: No hosts found
+# Solution: Check AWS credentials
+aws sts get-caller-identity
+
+# Issue: Permission denied
+# Solution: Verify IAM permissions
+aws ec2 describe-instances --dry-run
+
+# Issue: Cache not refreshing
+# Solution: Clear cache
+rm -rf /tmp/aws_ec2_cache
+
+# Issue: Hosts not grouped correctly
+# Solution: Test inventory output
+ansible-inventory -i inventory/aws_ec2.yml --list | jq .
+
+# Debug mode
+ANSIBLE_DEBUG=1 ansible-inventory -i inventory/aws_ec2.yml --list
+7.2 Verification Commands
+# List all hosts
+ansible-inventory -i inventory/aws_ec2.yml --list
+
+# Show host variables
+ansible-inventory -i inventory/aws_ec2.yml --host web1
+
+# Graph view
+ansible-inventory -i inventory/aws_ec2.yml --graph
+
+# Test connectivity
+ansible all -i inventory/aws_ec2.yml -m ping
+
+# Show specific group
+ansible-inventory -i inventory/aws_ec2.yml --graph @role_webserver
+8. Best Practices
+Recommendations:
+✅ Use consistent tagging strategy for all resources
+✅ Enable inventory caching for better performance
+✅ Use specific filters to reduce API calls
+✅ Implement retry logic in pipelines
+✅ Use IAM roles instead of access keys when possible
+✅ Test inventory changes in staging first
+✅ Document tag naming conventions
+✅ Monitor API rate limits
+8.1 Tagging Strategy
+# Standard tags for all resources
+tags = {
+  Name        = "resource-name"
+  Environment = "production|staging|development"
+  Role        = "webserver|database|cache"
+  Application = "app-name"
+  Managed     = "Ansible"
+  Owner       = "team-name"
+  CostCenter  = "department"
+  Backup      = "yes|no"
+}
+8.2 Security Considerations
+# Use IAM role for EC2 instances
+# Avoid hardcoding credentials
+
+# Minimum IAM permissions needed:
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeInstances",
+        "ec2:DescribeTags",
+        "ec2:DescribeRegions"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+Complete Test Scenario
+# 1. Create test infrastructure
+cd terraform && terraform apply -auto-approve
+
+# 2. Verify inventory
+ansible-inventory -i inventory/aws_ec2.yml --graph
+
+# 3. Test connectivity
+ansible all -i inventory/aws_ec2.yml -m ping
+
+# 4. Run configuration
+ansible-playbook -i inventory/aws_ec2.yml playbooks/configure.yml
+
+# 5. Verify deployment
+ansible role_webserver -i inventory/aws_ec2.yml -a "systemctl status nginx"
+
+# 6. Cleanup
+cd terraform && terraform destroy -auto-approve
+Summary:
+Dynamic inventory is essential for cloud-native infrastructure. It automatically discovers instances, integrates seamlessly with CI/CD pipelines, and eliminates manual inventory management. Use tag-based grouping for flexible host organization and enable caching for better performance.
+Congratulations! 🎉
+You now know how to:
+
+✅ Configure AWS EC2 dynamic inventory
+✅ Integrate with CI/CD pipelines (Jenkins, GitLab, GitHub)
+✅ Auto-discover EC2 instances after deployment
+✅ Create custom inventory scripts
+✅ Use tag-based grouping effectively
+✅ Troubleshoot common issues
+✅ Implement best practices and security
