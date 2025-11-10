@@ -1,0 +1,21 @@
+ Defining Variables
+---
+- name: Variables Demo
+  hosts: webservers
+  vars:
+    app_name: myapp
+    app_port: 8080
+    packages:
+      - nginx
+      - git
+      - curl
+  
+  tasks:
+    - name: Install packages
+      apt:
+        name: "{{ packages }}"
+        state: present
+    
+    - name: Display app info
+      debug:
+        msg: "Application {{ app_name }} on port {{ app_port }}"
