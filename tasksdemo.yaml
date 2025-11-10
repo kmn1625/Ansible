@@ -2,6 +2,7 @@ Task with Conditions
 ---
 - name: Conditional Tasks
   hosts: all
+  become: true
   tasks:
     - name: Install Apache on Debian
       apt:
