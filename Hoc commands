@@ -1,0 +1,38 @@
+Test Case 2: Ping All Nodes
+# Test connectivity to all hosts
+ansible all -m ping
+
+# Expected Output:
+# web1 | SUCCESS => {
+#     "changed": false,
+#     "ping": "pong"
+# }
+
+# Test specific group
+ansible webservers -m ping
+
+# Test with verbose output
+ansible all -m ping -v
+3. Ad-Hoc Commands
+Ad-Hoc Commands: One-liner Ansible commands for quick tasks without writing playbooks. Syntax: ansible [pattern] -m [module] -a [arguments]
+3.1 Common Ad-Hoc Commands
+# Check disk space on all servers
+ansible all -m shell -a "df -h"
+
+# Check uptime
+ansible all -m command -a "uptime"
+
+# Install package
+ansible webservers -m apt -a "name=nginx state=present" --become
+
+# Restart service
+ansible webservers -m service -a "name=nginx state=restarted" --become
+
+# Copy file to remote nodes
+ansible all -m copy -a "src=/local/file.txt dest=/tmp/file.txt"
+
+# Create user
+ansible all -m user -a "name=john state=present" --become
+
+# Get facts about nodes
+ansible all -m setup
