@@ -1,5 +1,6 @@
 - name: Tagged Playbook
   hosts: webservers
+  become: true
   tasks:
     - name: Install packages
       apt:
