@@ -1,0 +1,17 @@
+- name: Tagged Playbook
+  hosts: webservers
+  tasks:
+    - name: Install packages
+      apt:
+        name: nginx
+        state: present
+      tags:
+        - install
+        - packages
+    
+    - name: Deploy app
+      copy:
+        src: app.py
+        dest: /opt/app.py
+      tags:
+        - deploy
