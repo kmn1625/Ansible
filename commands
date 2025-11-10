@@ -16,3 +16,448 @@ ansible-playbook webserver.yml -vvv
 # Run specific tags
 ansible-playbook playbook.yml --tags install
 ansible-playbook playbook.yml --skip-tags deploy
+
+9.1 Create Role
+# Create role structure
+ansible-galaxy init webserver
+
+# Directory structure created:
+webserver/
+  tasks/
+  handlers/
+  templates/
+  files/
+  vars/
+  defaults/
+  meta/
+9.2 Using Roles
+---
+- name: Setup Web Server
+  hosts: webservers
+  become: yes
+  roles:
+    - webserver
+    - database
+    - monitoring
+10. Ansible Facts
+Facts: System information automatically discovered by Ansible about managed nodes.
+10.1 Common Facts
+# View all facts
+ansible hostname -m setup
+
+# Use facts in playbook
+---
+- name: Display Facts
+  hosts: all
+  tasks:
+    - name: Show OS info
+      debug:
+        msg: "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+    
+    - name: Show IP
+      debug:
+        msg: "IP: {{ ansible_default_ipv4.address }}"
+    
+    - name: Show memory
+      debug:
+        msg: "Memory: {{ ansible_memtotal_mb }} MB"
+10.2 Custom Facts
+# Create custom fact file
+# /etc/ansible/facts.d/custom.fact
+{
+  "application": {
+    "name": "myapp",
+    "version": "1.0.0"
+  }
+}
+
+# Access in playbook
+{{ ansible_local.custom.application.name }}
+11. Ansible Vault
+Ansible Vault: Encryption tool for sensitive data like passwords and API keys.
+11.1 Vault Commands
+# Create encrypted file
+ansible-vault create secrets.yml
+
+# Encrypt existing file
+ansible-vault encrypt vars.yml
+
+# Edit encrypted file
+ansible-vault edit secrets.yml
+
+# View encrypted file
+ansible-vault view secrets.yml
+
+# Decrypt file
+ansible-vault decrypt secrets.yml
+
+# Change password
+ansible-vault rekey secrets.yml
+11.2 Using Vault in Playbooks
+# secrets.yml (encrypted)
+---
+db_password: MySecretPass123
+api_key: xyz789abc456
+
+# playbook.yml
+---
+- name: Use Secrets
+  hosts: all
+  vars_files:
+    - secrets.yml
+  tasks:
+    - name: Configure database
+      mysql_user:
+        password: "{{ db_password }}"
+
+# Run with vault
+ansible-playbook playbook.yml --ask-vault-pass
+ansible-playbook playbook.yml --vault-password-file .vault_pass
+11.3 Encrypt String
+# Encrypt single variable
+ansible-vault encrypt_string 'MyPassword' --name 'db_password'
+
+# Use in playbook
+---
+- name: Inline Encrypted Var
+  hosts: all
+  vars:
+    db_password: !vault |
+      $ANSIBLE_VAULT;1.1;AES256
+      66386439653938616662343561373538...
+12. Templates (Jinja2)
+Templates: Jinja2 files for dynamic configuration generation using variables and logic.
+12.1 Basic Template
+# nginx.conf.j2
+server {
+    listen {{ nginx_port }};
+    server_name {{ server_name }};
+    root {{ document_root }};
+}
+
+# Playbook
+---
+- name: Deploy Config
+  hosts: webservers
+  vars:
+    nginx_port: 80
+    server_name: example.com
+    document_root: /var/www/html
+  tasks:
+    - name: Copy template
+      template:
+        src: nginx.conf.j2
+        dest: /etc/nginx/nginx.conf
+12.2 Template with Loops
+# config.j2
+{% for user in users %}
+User: {{ user.name }}
+Email: {{ user.email }}
+{% endfor %}
+
+# Playbook
+vars:
+  users:
+    - name: Alice
+      email: alice@example.com
+    - name: Bob
+      email: bob@example.com
+12.3 Template with Conditionals
+# app.conf.j2
+[app]
+debug = {{ 'true' if env == 'dev' else 'false' }}
+{% if ssl_enabled %}
+ssl_cert = /etc/ssl/cert.pem
+{% endif %}
+13. Error Handling
+Error Handling: Control how Ansible responds to task failures.
+13.1 Ignore Errors
+---
+- name: Error Handling
+  hosts: all
+  tasks:
+    - name: Task that might fail
+      command: /opt/script.sh
+      ignore_errors: yes
+    
+    - name: This runs even if above fails
+      debug:
+        msg: "Continuing execution"
+13.2 Block/Rescue
+---
+- name: Block Rescue
+  hosts: all
+  tasks:
+    - block:
+        - name: Risky task
+          command: /opt/risky.sh
+      rescue:
+        - name: Handle error
+          debug:
+            msg: "Error handled"
+      always:
+        - name: Cleanup
+          file:
+            path: /tmp/cleanup
+            state: absent
+13.3 Failed When
+---
+- name: Custom Failure
+  hosts: all
+  tasks:
+    - name: Check disk space
+      shell: df -h / | awk 'NR==2 {print $5}' | sed 's/%//'
+      register: disk_usage
+      failed_when: disk_usage.stdout|int > 90
+14. Ansible Best Practices
+Best Practices: Guidelines for writing maintainable and efficient Ansible code.
+14.1 Directory Structure
+ansible-project/
+  ansible.cfg
+  inventory/
+    production/
+      hosts
+      group_vars/
+      host_vars/
+    staging/
+      hosts
+      group_vars/
+  playbooks/
+    site.yml
+    webservers.yml
+  roles/
+    common/
+    webserver/
+    database/
+  vars/
+    secrets.yml
+  files/
+  templates/
+14.2 Naming Conventions
+# Good task names - descriptive
+- name: Install nginx web server
+- name: Copy production nginx configuration
+- name: Ensure nginx service is running
+
+# Bad task names - vague
+- name: Install
+- name: Copy file
+- name: Start service
+14.3 Use Variables
+# Good - flexible
+- name: Install package
+  apt:
+    name: "{{ package_name }}"
+    state: "{{ package_state }}"
+
+# Bad - hardcoded
+- name: Install package
+  apt:
+    name: nginx
+    state: present
+14.4 Idempotency
+# Idempotent - can run multiple times safely
+- name: Ensure user exists
+  user:
+    name: appuser
+    state: present
+
+- name: Ensure file has correct content
+  copy:
+    content: "{{ config_data }}"
+    dest: /etc/app/config.ini
+
+# Not idempotent - avoid
+- name: Append to file
+  shell: echo "data" >> /etc/file.txt
+15. Complete Example: LAMP Stack Deployment
+15.1 Full LAMP Stack Playbook
+---
+- name: Deploy LAMP Stack
+  hosts: webservers
+  become: yes
+  vars:
+    mysql_root_password: "{{ vault_mysql_root_password }}"
+    app_user: webapp
+    doc_root: /var/www/html
+  
+  tasks:
+    # Apache
+    - name: Install Apache
+      apt:
+        name: apache2
+        state: present
+        update_cache: yes
+      tags: apache
+    
+    - name: Start Apache
+      service:
+        name: apache2
+        state: started
+        enabled: yes
+      tags: apache
+    
+    # MySQL
+    - name: Install MySQL
+      apt:
+        name:
+          - mysql-server
+          - python3-pymysql
+        state: present
+      tags: mysql
+    
+    - name: Set MySQL root password
+      mysql_user:
+        name: root
+        password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+      tags: mysql
+    
+    - name: Create application database
+      mysql_db:
+        name: appdb
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+      tags: mysql
+    
+    # PHP
+    - name: Install PHP
+      apt:
+        name:
+          - php
+          - libapache2-mod-php
+          - php-mysql
+        state: present
+      tags: php
+      notify: Restart Apache
+    
+    # Application
+    - name: Create app user
+      user:
+        name: "{{ app_user }}"
+        state: present
+      tags: app
+    
+    - name: Deploy application files
+      copy:
+        src: app/
+        dest: "{{ doc_root }}/"
+        owner: "{{ app_user }}"
+        group: www-data
+        mode: '0644'
+      tags: app
+    
+    - name: Copy PHP config
+      template:
+        src: php.ini.j2
+        dest: /etc/php/8.1/apache2/php.ini
+      notify: Restart Apache
+      tags: php
+  
+  handlers:
+    - name: Restart Apache
+      service:
+        name: apache2
+        state: restarted
+16. Testing and Validation
+16.1 Syntax Check
+# Check playbook syntax
+ansible-playbook playbook.yml --syntax-check
+
+# Check inventory
+ansible-inventory --list -i inventory/hosts
+16.2 Dry Run
+# Run in check mode (no changes made)
+ansible-playbook playbook.yml --check
+
+# Check with diff
+ansible-playbook playbook.yml --check --diff
+16.3 Molecule Testing
+# Install molecule
+pip3 install molecule molecule-docker
+
+# Initialize test
+molecule init role my-role
+
+# Run tests
+molecule test
+17. Ansible Configuration
+17.1 ansible.cfg
+[defaults]
+inventory = ./inventory/hosts
+remote_user = ansible
+host_key_checking = False
+retry_files_enabled = False
+gathering = smart
+fact_caching = jsonfile
+fact_caching_connection = /tmp/facts
+fact_caching_timeout = 86400
+
+[privilege_escalation]
+become = True
+become_method = sudo
+become_user = root
+become_ask_pass = False
+
+[ssh_connection]
+pipelining = True
+ssh_args = -o ControlMaster=auto -o ControlPersist=60s
+18. Quick Reference
+18.1 Common Modules
+# Package Management
+apt, yum, dnf, package
+
+# File Operations
+copy, template, file, lineinfile, blockinfile
+
+# Service Management
+service, systemd
+
+# User Management
+user, group
+
+# Command Execution
+command, shell, raw, script
+
+# Database
+mysql_db, mysql_user, postgresql_db
+
+# Cloud
+ec2, azure_rm, gcp_compute
+18.2 Common Commands
+# Ad-hoc commands
+ansible all -m ping
+ansible all -a "uptime"
+ansible all -m setup
+
+# Playbooks
+ansible-playbook site.yml
+ansible-playbook site.yml --check
+ansible-playbook site.yml --tags web
+ansible-playbook site.yml --limit web1
+
+# Vault
+ansible-vault create secrets.yml
+ansible-vault encrypt file.yml
+ansible-vault edit secrets.yml
+
+# Galaxy
+ansible-galaxy install role-name
+ansible-galaxy init my-role
+Summary:
+This tutorial covered all essential Ansible concepts from installation to advanced topics. Practice each section with real examples to master Ansible automation. Always test in development before production deployment!
+Congratulations! 🎉
+You have completed the comprehensive Ansible tutorial covering:
+
+✅ Installation and Setup
+✅ SSH Configuration and Node Connection
+✅ Ad-hoc Commands
+✅ Playbooks and Tasks
+✅ Variables and Facts
+✅ Handlers and Tags
+✅ Roles and Templates
+✅ Ansible Vault for Security
+✅ Best Practices and Testing
+✅ Complete LAMP Stack Example
+Next Steps: Practice with real infrastructure, explore Ansible Galaxy for community roles, and integrate with CI/CD pipelines!
