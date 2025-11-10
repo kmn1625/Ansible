@@ -12,3 +12,7 @@ ansible-playbook webserver.yml --check
 ansible-playbook webserver.yml -v
 ansible-playbook webserver.yml -vv
 ansible-playbook webserver.yml -vvv
+
+# Run specific tags
+ansible-playbook playbook.yml --tags install
+ansible-playbook playbook.yml --skip-tags deploy
