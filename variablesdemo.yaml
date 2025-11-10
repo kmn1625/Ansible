@@ -2,6 +2,7 @@
 ---
 - name: Variables Demo
   hosts: webservers
+  become: true
   vars:
     app_name: myapp
     app_port: 8080
