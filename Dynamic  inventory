@@ -1,0 +1,96 @@
+Prep the control node (install Python packages + collection)
+
+Run on your control node (where you run ansible):
+
+# create a venv (recommended)
+python3 -m venv ~/ansible-venv && source ~/ansible-venv/bin/activate
+
+# pip prerequisites
+pip install --upgrade pip
+pip install boto3 botocore
+
+# install the collection that contains the plugin
+ansible-galaxy collection install amazon.aws
+
+# confirm plugin appears
+ansible-doc -t inventory -l | grep aws_ec2 || true
+
+AWS credentials — how to provide them
+
+Ansible (the plugin) uses standard AWS auth methods (in order):
+
+Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, optional AWS_SESSION_TOKEN), or
+
+~/.aws/credentials + ~/.aws/config (profile + region), or
+
+IAM instance role (if controller runs on an EC2 instance) — all work.
+
+Example export (temporary for quick test):
+
+export AWS_ACCESS_KEY_ID=AKIA...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_DEFAULT_REGION=ap-south-1
+
+Create a plugin config file (inventory source)
+
+Create a file named ec2.aws_ec2.yml (the filename suffix is important — plugin expects aws_ec2 ending) in your project:
+
+# ec2.aws_ec2.yml
+plugin: amazon.aws.aws_ec2
+# either rely on env vars / default profile, or specify profile
+# profile: default
+regions:
+  - ap-south-1
+filters:
+  instance-state-name: running
+# group instances by tag "Role" into groups like role_web
+keyed_groups:
+  - key: tags.Role
+    prefix: role_
+# Tell Ansible what IP/address to use for ansible_host (public or private)
+compose:
+  ansible_host: public_ip_address
+
+# optional: only show these hostvars
+hostvars:
+  - private_ip_address
+  - public_ip_address
+
+
+Key points:
+
+plugin: amazon.aws.aws_ec2 — uses the plugin from the amazon.aws collection.
+
+regions — list your regions.
+
+filters — AWS API filters (same as EC2 API filter keys).
+
+keyed_groups — nice feature to create groups by tag values (e.g., role_web).
+
+compose — build hostvars like ansible_host using fields from AWS.
+
+Enable plugin (if needed) via ansible.cfg
+
+You can explicitly enable inventory plugins in ansible.cfg (optional but helpful):
+
+[defaults]
+inventory = ./ec2.aws_ec2.yml
+enable_plugins = amazon.aws.aws_ec2
+# other helpful defaults:
+host_key_checking = False
+
+Test the inventory (step-by-step)
+
+Show the inventory graph (reads AWS and prints groups/hosts):
+
+ANSIBLE_INVENTORY_ENABLED=amazon.aws.aws_ec2 ansible-inventory -i ec2.aws_ec2.yml --graph
+
+
+# list hosts
+ansible-inventory -i ec2.aws_ec2.yml --list
+
+# graph
+ansible-inventory -i ec2.aws_ec2.yml --graph
+
+# ping
+ansible all -i ec2.aws_ec2.yml -u ubuntu -m ping --private-key=~/.ssh/id_ed25519 -vvv
